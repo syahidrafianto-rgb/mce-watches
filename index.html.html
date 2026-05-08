@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>MCE WATCHES — Sistem Return</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -417,7 +416,6 @@ tr.is-sel td{background:rgba(26,95,160,.06)!important;}
 ::-webkit-scrollbar{width:5px;height:5px;}
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:99px;}
-@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -848,7 +846,7 @@ let repMo=new Date(); repMo.setDate(1);
 let impQ=[], fileSp=null, fileTk=null;
 let selectedIds=new Set(), currentFiltered=[];
 let vsSessions=[], vsActiveSession=null;
-let vsStream=null, vsInterval=null, vsBD=null, vsFace='environment', vsZxingReader=null, vsUseZxing=false;
+let vsStream=null, vsInterval=null, vsBD=null, vsFace='environment';
 let vsLastResi='', vsLastResiTime=0;
 let GS_URL=localStorage.getItem('mce_gs_url')||'';
 let isSyncing=false, lastSync=null;
@@ -1428,19 +1426,9 @@ function parseTglTT(raw){if(!raw)return today();const s=raw.toString().replace(/
 // ══════════════════════════════════════════════
 // SESI VERIFIKASI
 // ══════════════════════════════════════════════
-async function vsOnOpen(){
+function vsOnOpen(){
   vsLoadSess();
-  if(typeof BarcodeDetector!=='undefined'){
-    try{
-      vsBD=new BarcodeDetector({formats:['code_128','code_39','qr_code','ean_13','ean_8','data_matrix','pdf417','itf','upc_a','upc_e']});
-      await vsBD.detect(document.createElement('canvas'));
-      vsUseZxing=false;
-    }catch(e){ vsBD=null; }
-  }
-  if(!vsBD&&typeof ZXing!=='undefined'){
-    try{ vsZxingReader=new ZXing.BrowserMultiFormatReader(); vsUseZxing=true; }
-    catch(e){ vsUseZxing=false; }
-  }
+  if(typeof BarcodeDetector!=='undefined') vsBD=new BarcodeDetector({formats:['code_128','code_39','qr_code','ean_13','ean_8','data_matrix','pdf417','itf','upc_a','upc_e']});
   const active=vsSessions.find(s=>!s.endTime);
   if(active){vsActiveSession=active;vsShowState('active');vsUpdHeader();vsUpdCounters();vsRenderLog();}
   else{vsShowState('start');vsRenderHistory();document.getElementById('vsTgl').value=today();}
@@ -1482,83 +1470,53 @@ function vsSetStatus(msg,col='rgba(255,255,255,.7)'){
   if(el){el.textContent=msg;el.style.color=col;}
 }
 async function vsCamStart(){
+  // Langsung hide placeholder, tampilkan video
   const ph=document.getElementById('vsCamPlaceholder');
   const vid=document.getElementById('vsVideo');
   const ov=document.getElementById('vsCamOverlay');
   const st=document.getElementById('vsStatus');
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
-    if(ph){
-      ph.style.display='flex';
-      ph.innerHTML=`<div class="vs-cam-placeholder-ic">🔒</div><div class="vs-cam-placeholder-tt" style="color:#C8A84A;">Kamera butuh HTTPS</div><div class="vs-cam-placeholder-sb">Buka via https:// atau localhost — bukan file://</div><div style="margin-top:10px;background:var(--amber);color:#fff;padding:8px 18px;border-radius:99px;font-size:12px;font-weight:800;font-family:'Plus Jakarta Sans',sans-serif;">Gunakan Input Manual ↓</div>`;
-    }
-    toast('❌ Kamera tidak tersedia — perlu HTTPS atau localhost','err');
-    return;
-  }
-  if(ph){
-    ph.style.display='flex';
-    ph.innerHTML=`<div class="vs-cam-placeholder-ic" style="display:inline-block;animation:spin 1s linear infinite;">⏳</div><div class="vs-cam-placeholder-tt">Meminta izin kamera...</div><div class="vs-cam-placeholder-sb">Izinkan akses kamera di browser Anda</div>`;
-  }
+  if(ph)ph.style.display='none';
+  if(vid)vid.style.display='block';
+  if(ov)ov.style.display='flex';
+  if(st)st.style.display='block';
+
   try{
-    vsStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:vsFace,width:{ideal:1280},height:{ideal:720}}});
-    if(!vid||!vsStream){throw new Error('Video element tidak ditemukan');}
-    if(ph)ph.style.display='none';
-    vid.srcObject=vsStream; vid.style.display='block';
-    if(ov)ov.style.display='flex';
-    if(st)st.style.display='block';
+    vsStream=await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:vsFace,width:{ideal:1280},height:{ideal:720}}
+    });
+    if(!vid)return;
+    vid.srcObject=vsStream;
     await vid.play();
     const b1=document.getElementById('vsBtnStart');
     const b2=document.getElementById('vsBtnStop');
     if(b1)b1.style.display='none';
-    if(b2)b2.style.display='flex';
+    if(b2){b2.style.display='flex';}
+    // Make camera wrap not clickable anymore
     const wrap=document.getElementById('vsCamWrap');
     if(wrap)wrap.style.cursor='default';
-    if(vsBD){
-      vsSetStatus('📷 Scan otomatis aktif — arahkan ke barcode resi','#C8A84A');
-      vsStartDetect();
-    }else if(vsUseZxing&&vsZxingReader){
-      vsSetStatus('📷 Kamera aktif (ZXing) — arahkan ke barcode resi','#C8A84A');
-      vsStartZxing(vid);
-    }else{
-      vsSetStatus('📷 Kamera aktif — ketik resi manual atau gunakan scanner pistol','rgba(255,255,255,.7)');
-    }
+    vsSetStatus('📷 Arahkan ke barcode / QR Code resi paket','#C8A84A');
+    if(vsBD)vsStartDetect();
   }catch(e){
-    if(vid){vid.srcObject=null;vid.style.display='none';}
+    // Kamera gagal — kembalikan placeholder
+    if(ph)ph.style.display='flex';
+    if(vid)vid.style.display='none';
     if(ov)ov.style.display='none';
     if(st)st.style.display='none';
-    if(vsStream){vsStream.getTracks().forEach(t=>t.stop());vsStream=null;}
     const b1=document.getElementById('vsBtnStart');
     if(b1)b1.style.display='flex';
-    let ic='🚫',tt='Kamera tidak bisa diakses',sb='';
-    if(e.name==='NotAllowedError'||e.name==='PermissionDeniedError'){
-      ic='🔐';tt='Izin kamera ditolak';
-      sb='Klik ikon 🔒 di address bar browser → Izinkan Kamera → Refresh halaman';
-    }else if(e.name==='NotFoundError'||e.name==='DevicesNotFoundError'){
-      ic='📵';tt='Kamera tidak ditemukan';
-      sb='Perangkat tidak punya kamera, atau kamera sedang dipakai aplikasi lain';
-    }else if(e.name==='NotReadableError'||e.name==='TrackStartError'){
-      ic='⚠️';tt='Kamera dipakai aplikasi lain';
-      sb='Tutup WhatsApp / Google Meet / kamera lain, lalu klik Coba Lagi';
-    }else if(e.name==='OverconstrainedError'){
-      try{
-        vsStream=await navigator.mediaDevices.getUserMedia({video:true});
-        if(ph)ph.style.display='none';
-        vid.srcObject=vsStream;vid.style.display='block';
-        if(ov)ov.style.display='flex';if(st)st.style.display='block';
-        await vid.play();
-        if(b1)b1.style.display='none';
-        const b2r=document.getElementById('vsBtnStop');if(b2r)b2r.style.display='flex';
-        vsSetStatus('📷 Kamera aktif (resolusi default)','#C8A84A');
-        if(vsBD)vsStartDetect();else if(vsUseZxing&&vsZxingReader)vsStartZxing(vid);
-        return;
-      }catch(e2){ic='⚠️';tt='Kamera gagal';sb='Error: '+e2.message;}
+    if(e.name==='NotAllowedError'){
+      toast('❌ Izin kamera ditolak — gunakan input manual','err');
+      // Update placeholder text
+      if(ph){
+        ph.innerHTML=`
+          <div class="vs-cam-placeholder-ic">🚫</div>
+          <div class="vs-cam-placeholder-tt">Izin kamera ditolak</div>
+          <div class="vs-cam-placeholder-sb">Gunakan input manual di bawah untuk scan resi</div>
+          <div style="margin-top:12px;background:var(--amber);color:#fff;padding:10px 24px;border-radius:99px;font-size:13px;font-weight:800;font-family:'Plus Jakarta Sans',sans-serif;" onclick="vsCamStart()">🔄 Coba Lagi</div>`;
+      }
     }else{
-      sb='Error: '+e.name+' — '+e.message;
+      toast('❌ Kamera error: '+e.message,'err');
     }
-    if(ph){
-      ph.style.display='flex';
-      ph.innerHTML=`<div class="vs-cam-placeholder-ic">${ic}</div><div class="vs-cam-placeholder-tt" style="color:#C8A84A;">${tt}</div><div class="vs-cam-placeholder-sb">${sb}</div><div style="margin-top:12px;background:var(--amber);color:#fff;padding:10px 24px;border-radius:99px;font-size:13px;font-weight:800;font-family:'Plus Jakarta Sans',sans-serif;cursor:pointer;" onclick="vsCamStart()">🔄 Coba Lagi</div>`;
-    }
-    toast('❌ '+tt,'err');
   }
 }
 
@@ -1588,60 +1546,21 @@ function vsCamStop(){
   const wrap=document.getElementById('vsCamWrap');
   if(wrap)wrap.style.cursor='pointer';
 }
-async async function vsSwitchCam(){vsFace=vsFace==='environment'?'user':'environment';vsCamStop();await vsCamStart();}
+function vsSwitchCam(){vsFace=vsFace==='environment'?'user':'environment';vsCamStop();vsCamStart();}
 function vsStartDetect(){
   const vid=document.getElementById('vsVideo');
-  if(vsInterval){clearInterval(vsInterval);vsInterval=null;}
   vsInterval=setInterval(async()=>{
     if(!vsBD||!vsStream||!vid||vid.readyState<2)return;
-    if(vsStream.getTracks().some(t=>t.readyState==='ended')){clearInterval(vsInterval);vsInterval=null;return;}
     try{
       const bc=await vsBD.detect(vid);
       if(bc.length>0){
         const code=bc[0].rawValue.trim();const now=Date.now();
         if(code===vsLastResi&&now-vsLastResiTime<3000)return;
-        vsLastResi=code;vsLastResiTime=now;vsScan(code);
+        vsLastResi=code;vsLastResiTime=now;
+        vsScan(code);
       }
     }catch(e){}
   },400);
-}
-function vsStartZxing(vid){
-  if(!vsZxingReader||!vid)return;
-  if(vsInterval){clearInterval(vsInterval);vsInterval=null;}
-  vsInterval=setInterval(async()=>{
-    if(!vsStream||!vid||vid.readyState<2)return;
-    if(vsStream.getTracks().some(t=>t.readyState==='ended')){clearInterval(vsInterval);vsInterval=null;return;}
-    try{
-      const canvas=document.createElement('canvas');
-      canvas.width=vid.videoWidth||640;canvas.height=vid.videoHeight||480;
-      canvas.getContext('2d').drawImage(vid,0,0,canvas.width,canvas.height);
-      const result=await vsZxingReader.decodeFromCanvas(canvas);
-      if(result){
-        const code=result.getText().trim();const now=Date.now();
-        if(code===vsLastResi&&now-vsLastResiTime<3000)return;
-        vsLastResi=code;vsLastResiTime=now;vsScan(code);
-      }
-    }catch(e){}
-  },500);
-}
-function vsStartZxing(vid){
-  if(!vsZxingReader||!vid)return;
-  if(vsInterval){clearInterval(vsInterval);vsInterval=null;}
-  vsInterval=setInterval(async()=>{
-    if(!vsStream||!vid||vid.readyState<2)return;
-    if(vsStream.getTracks().some(t=>t.readyState==='ended')){clearInterval(vsInterval);vsInterval=null;return;}
-    try{
-      const canvas=document.createElement('canvas');
-      canvas.width=vid.videoWidth||640;canvas.height=vid.videoHeight||480;
-      canvas.getContext('2d').drawImage(vid,0,0,canvas.width,canvas.height);
-      const result=await vsZxingReader.decodeFromCanvas(canvas);
-      if(result){
-        const code=result.getText().trim();const now=Date.now();
-        if(code===vsLastResi&&now-vsLastResiTime<3000)return;
-        vsLastResi=code;vsLastResiTime=now;vsScan(code);
-      }
-    }catch(e){}
-  },500);
 }
 
 // ── CORE SCAN LOGIC ──
